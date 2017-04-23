@@ -1,0 +1,93 @@
+--- keyrings.alt-2.2/keyrings/alt/pyfs.py.orig	2017-03-25 21:20:01.000000000 +0100
++++ keyrings.alt-2.2/keyrings/alt/pyfs.py	2017-04-23 10:35:42.342374226 +0200
+@@ -91,24 +91,33 @@
+             #       so we add a dummy name and open it separately
+             if (self.filename.startswith('mem://') or
+                     self.filename.startswith('ram://')):
+-                open_file = fs.opener.fsopendir(self.filename).open('kr.cfg',
++                open_file = fs.opener.open_fs(self.filename).open(u'kr.cfg',
+                                                                     mode)
+             else:
+                 if not hasattr(self, '_pyfs'):
+                     # reuse the pyfilesystem and path
+-                    self._pyfs, self._path = fs.opener.opener.parse(self.filename,
+-                                               writeable=writeable)
+-                    # cache if permitted
+-                    if self._cache_timeout is not None:
+-                        self._pyfs = fs.remote.CacheFS(
+-                            self._pyfs, cache_timeout=self._cache_timeout)
++                    if '://' not in self.filename:
++                        fspath, self._path = os.path.split(self.filename)
++                        self._pyfs = fs.opener.open_fs(fspath,
++                                                       writeable=writeable,
++                                                       create=writeable and self._can_create)
++                    elif self.filename.startswith('temp://'):
++                        self._path = self.filename[7:]
++                        self._pyfs = fs.opener.open_fs('temp://',
++                                                       writeable=writeable,
++                                                       create=writeable and self._can_create)
++                    else:
++                        self._pyfs, self._path = fs.opener.open(self.filename,
++                                                                writeable=writeable,
++                                                                create=writeable and self._can_create)
+                 open_file = self._pyfs.open(self._path, mode)
+-        except fs.errors.ResourceNotFoundError:
++        except fs.errors.ResourceNotFound:
+             if self._can_create:
+-                segments = fs.opener.opener.split_segments(self.filename)
+-                if segments:
++                try:
++                    segments = fs.opener.parse(self.filename)
+                     # this seems broken, but pyfilesystem uses it, so we must
+-                    fs_name, credentials, url1, url2, path = segments.groups()
++                    fs_name = segments.protocol
++                    url2 = segments.resource
+                     assert fs_name, 'Should be a remote filesystem'
+                     host = ''
+                     # allow for domain:port
+@@ -119,18 +128,14 @@
+                         else:
+                             url2 = ''
+                         host = split_url2[0]
+-                    pyfs = fs.opener.opener.opendir('%s://%s' %(fs_name, host))
+-                    # cache if permitted
+-                    if self._cache_timeout is not None:
+-                        pyfs = fs.remote.CacheFS(
+-                            pyfs, cache_timeout=self._cache_timeout)
++                    pyfs = fs.opener.open_fs('%s://%s' %(fs_name, host))
+                     # NOTE: fs.path.split does not function in the same way os os.path.split... at least under windows
+                     url2_path, url2_filename = os.path.split(url2)
+                     if url2_path and not pyfs.exists(url2_path):
+-                        pyfs.makedir(url2_path, recursive=True)
+-                else:
++                        pyfs.makedirs(url2_path)
++                except fs.opener.ParseError:
+                     # assume local filesystem
+-                    full_url = fs.opener._expand_syspath(self.filename)
++                    full_url = os.path.realpath(self.filename)
+                     # NOTE: fs.path.split does not function in the same way os os.path.split... at least under windows
+                     url2_path, url2 = os.path.split(full_url)
+                     pyfs = fs.osfs.OSFS(url2_path)
+@@ -140,7 +145,7 @@
+                     self._pyfs = pyfs
+                     self._path = url2
+                     return pyfs.open(url2, mode)
+-                except fs.errors.ResourceNotFoundError:
++                except fs.errors.ResourceNotFound:
+                     if writeable:
+                         raise
+                     else:
+--- keyrings.alt-2.2/tests/test_pyfs.py.orig	2017-03-25 21:20:01.000000000 +0100
++++ keyrings.alt-2.2/tests/test_pyfs.py	2017-04-23 08:57:03.112441813 +0200
+@@ -72,8 +72,9 @@
+             filename=self.keyring_filename)
+ 
+     def test_handles_preexisting_keyring(self):
+-        from fs.opener import opener
+-        fs, path = opener.parse(self.keyring_filename, writeable=True)
++        import fs.opener
++        fspath, path = os.path.split(self.keyring_filename)
++        fs = fs.opener.open_fs(fspath, writeable=True)
+         keyring_file = fs.open(path, 'w')
+         file_data = textwrap.dedent("""
+             [svc1]
