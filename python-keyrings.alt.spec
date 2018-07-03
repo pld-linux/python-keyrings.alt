@@ -9,7 +9,7 @@ Summary:	Alternate keyring backend implementations for use with the keyring modu
 Summary(pl.UTF-8):	Alternatywne implementacje backendów dla modułu keyring
 Name:		python-keyrings.alt
 Version:	2.2
-Release:	1
+Release:	2
 License:	MIT
 Group:		Libraries/Python
 #Source0Download: https://pypi.python.org/simple/keyrings.alt
